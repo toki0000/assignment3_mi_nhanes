@@ -1,0 +1,147 @@
+---
+title: "Multiple Imputation Analysis Using NHANES Data"
+author: "JI YINGXIANG"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  beamer_presentation:
+    theme: "Madrid"
+    colortheme: "default"
+    fonttheme: "professionalfonts"
+    slide_level: 2
+    keep_tex: true
+fontsize: 10pt
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{graphicx}
+  - \usepackage{float}
+  - \usepackage{adjustbox}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 6.0,
+  fig.height = 3.0,
+  out.width = "0.88\\linewidth",
+  dpi = 150
+)
+options(width = 60)
+
+library(mice)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+
+kbl_fit <- function(x, caption = NULL, digits = 3) {
+  x <- as.data.frame(x)
+  for (j in seq_along(x)) if (is.numeric(x[[j]])) x[[j]] <- round(x[[j]], digits)
+  kable(x, format = "latex", booktabs = TRUE, caption = caption, longtable = FALSE) |>
+    kable_styling(latex_options = c("hold_position","scale_down"), font_size = 7)
+}
+```
+
+## Objective
+- Apply **Multiple Imputation (MI)** to a real dataset with missing data  
+- Conduct regression analysis and pooled inference  
+- Sensitivity analysis using different imputation numbers
+
+## Data Source
+- National Health and Nutrition Examination Survey (**NHANES**) 
+- Teaching subset included in the `mice` package
+- https://wwwn.cdc.gov/nchs/nhanes/
+
+## Dataset Description
+- Sample size: **25**
+- Variables: age, bmi, hyp, chl
+
+```{r data}
+data(nhanes, package = "mice")
+head(nhanes)
+```
+
+## Missing Data Pattern
+```{r mdpattern, fig.height=2.6}
+md.pattern(nhanes)
+```
+
+## Missing Data Assumption
+- Missing values are assumed **Missing At Random (MAR)**  
+- Missingness can be explained by observed covariates and study context
+
+## Multiple Imputation Strategy
+- Method: **MICE** with predictive mean matching  
+- Main analysis uses **m = 20** imputations  
+- A smaller number of imputations (**m = 5**) is used for robustness checking
+
+## Convergence Diagnostics
+```{r diag, fig.height=3.0}
+set.seed(123)
+imp20 <- mice(nhanes, m = 20, method = "pmm", printFlag = FALSE)
+plot(imp20, c("bmi","chl"))
+```
+
+## Analysis Model
+Linear regression model:
+\[
+\text{bmi} = \beta_0 + \beta_1 \text{age} + \beta_2 \text{hyp} + \varepsilon
+\]
+
+## Main Results (m = 20)
+- This table reports the primary regression results after multiple imputation.
+- Estimates are pooled across 20 imputed datasets using Rubin’s rules.
+
+```{r fit20}
+fit20 <- with(imp20, lm(bmi ~ age + hyp))
+pooled20 <- pool(fit20)
+tab20 <- summary(pooled20, conf.int = TRUE) |>
+  as_tibble() |>
+  select(term, estimate, std.error, statistic, df, p.value, `2.5 %`, `97.5 %`)
+kbl_fit(tab20, caption = "Pooled regression results (m = 20)")
+```
+
+## Results with Fewer Imputations (m = 5)
+- This analysis repeats the same model using fewer imputations.
+- The goal is to assess whether conclusions depend strongly on the choice of *m*.
+
+```{r fit5}
+set.seed(123)
+imp5 <- mice(nhanes, m = 5, method = "pmm", printFlag = FALSE)
+
+fit5 <- with(imp5, lm(bmi ~ age + hyp))
+pooled5 <- pool(fit5)
+tab5 <- summary(pooled5, conf.int = TRUE) |>
+  as_tibble() |>
+  select(term, estimate, std.error, statistic, df, p.value, `2.5 %`, `97.5 %`)
+kbl_fit(tab5, caption = "Pooled regression results (m = 5)")
+```
+
+## Comparison of Estimates
+- Coefficient estimates and uncertainty are compared across *m = 20* and *m = 5*.
+- Similar results suggest robustness to the number of imputations.
+
+```{r compare}
+cmp <- tab20 |>
+  transmute(term,
+            est_m20 = estimate, se_m20 = std.error, p_m20 = p.value,
+            lo_m20 = `2.5 %`, hi_m20 = `97.5 %`) |>
+  left_join(
+    tab5 |>
+      transmute(term,
+                est_m5 = estimate, se_m5 = std.error, p_m5 = p.value,
+                lo_m5 = `2.5 %`, hi_m5 = `97.5 %`),
+    by = "term"
+  )
+kbl_fit(cmp, caption = "Comparison of pooled estimates by number of imputations")
+```
+
+## Interpretation
+- Multiple imputation appropriately accounts for uncertainty due to missing data  
+- Main findings are consistent across different numbers of imputations  
+- Results do not appear sensitive to the choice of *m* in this example
+
+## Gituhub
+- https://github.com/toki0000/assignment3_mi_nhanes 
+
+
